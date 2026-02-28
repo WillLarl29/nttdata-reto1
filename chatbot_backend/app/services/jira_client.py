@@ -4,9 +4,15 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Base URL del dominio Jira (limpiar slashes extras y asegurar https://)
+_domain = settings.JIRA_DOMAIN.strip().strip("/")
+if not _domain.startswith("http"):
+    _domain = f"https://{_domain}"
+JIRA_BASE = _domain
+
 # Base URLs para las APIs REST de Jira Cloud
-JIRA_API_V2 = f"{settings.JIRA_DOMAIN}/rest/api/2"
-JIRA_API_V3 = f"{settings.JIRA_DOMAIN}/rest/api/3"
+JIRA_API_V2 = f"{JIRA_BASE}/rest/api/2"
+JIRA_API_V3 = f"{JIRA_BASE}/rest/api/3"
 
 
 def _get_auth() -> tuple[str, str]:
@@ -97,7 +103,7 @@ async def create_jira_issue(
             if response.status_code == 201:
                 data = response.json()
                 issue_key = data["key"]
-                issue_url = f"{settings.JIRA_DOMAIN}/browse/{issue_key}"
+                issue_url = f"{JIRA_BASE}/browse/{issue_key}"
                 logger.info(f"✅ Issue creado exitosamente: {issue_key}")
                 return {"key": issue_key, "url": issue_url}
             else:

@@ -121,6 +121,8 @@ def classify_locally(
         "dejo de", "no funciona", "no sirve", "dañó", "roto",
         "pantalla azul", "reinicia solo", "no carga", "no abre",
         "laptop", "computadora", "pc", "equipo", "impresora",
+        "cayó", "cayo", "se cayó", "se cayo", "servidor", "base de datos",
+        "sistemas", "no hay", "no tengo", "no responde", "no conecta",
     ]
     is_incident = _detect_keywords(user_message, incident_keywords) or (current_draft and current_draft.get("description"))
     
