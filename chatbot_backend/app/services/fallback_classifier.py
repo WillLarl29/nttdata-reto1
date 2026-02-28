@@ -19,7 +19,7 @@ CATEGORY_RULES = [
     (["vpn", "red", "internet", "wifi", "conexión", "conexion", "proxy", "firewall"], "Infraestructura", "Conectividad/Red", "Infraestructura"),
     (["correo", "email", "outlook", "mail", "exchange"], "Sistemas / Mail", "Correo corporativo", "Soporte Mail"),
     (["servidor", "server", "caído", "caido", "down", "outage"], "Infraestructura", "Servidor/Disponibilidad", "Infraestructura"),
-    (["impresora", "printer", "escáner", "escaner", "hardware", "monitor", "teclado", "mouse"], "Infraestructura", "Hardware/Periféricos", "Soporte Hardware"),
+    (["impresora", "printer", "escáner", "escaner", "hardware", "monitor", "teclado", "mouse", "laptop", "computadora", "pc", "notebook", "pantalla", "disco duro", "batería", "bateria", "cargador", "no prende", "no enciende", "malogro", "malogró", "dañó", "roto"], "Infraestructura", "Hardware/Periféricos", "Soporte Hardware"),
     (["software", "instalar", "instalación", "instalacion", "actualizar", "licencia", "programa"], "Catálogo / SW", "Software/Licencias", "Soporte SW"),
     (["seguridad", "virus", "malware", "phishing", "ransomware", "hackeo"], "Seguridad", "Incidente de seguridad", "Seguridad IT"),
     (["teléfono", "telefono", "movil", "celular", "app", "aplicación", "aplicacion"], "Plataforma / Movil", "App móvil", "Soporte Apps"),
@@ -30,8 +30,8 @@ CATEGORY_RULES = [
 ]
 
 URGENCY_KEYWORDS = {
-    "ALTA": ["urgente", "bloqueado", "caído", "caido", "no funciona", "paralizado", "crítico", "critico", "ahora mismo", "inmediato"],
-    "MEDIA": ["hoy", "pronto", "necesito", "importante"],
+    "ALTA": ["urgente", "bloqueado", "caído", "caido", "no funciona", "paralizado", "crítico", "critico", "ahora mismo", "inmediato", "no prende", "no enciende", "malogro", "malogró", "dejó de funcionar", "dejo de funcionar"],
+    "MEDIA": ["hoy", "pronto", "necesito", "importante", "lento", "se traba", "falla"],
     "BAJA": ["cuando pueda", "no urgente", "consulta", "duda"],
 }
 
@@ -112,8 +112,16 @@ def classify_locally(
         if msg["role"] == "user":
             full_text += " " + msg["content"]
 
-    # Detectar si es un reporte de incidente
-    incident_keywords = ["error", "no funciona", "problema", "falla", "caído", "caido", "no puedo", "bloqueado", "ayuda", "urgente", "acceso", "permiso"]
+    # Detectar si es un reporte de incidente (amplio para español coloquial)
+    incident_keywords = [
+        "error", "no funciona", "problema", "falla", "caído", "caido",
+        "no puedo", "bloqueado", "ayuda", "urgente", "acceso", "permiso",
+        "malogro", "malogró", "no prende", "no enciende", "se colgó",
+        "se colgo", "se trabó", "se trabo", "lento", "dejó de",
+        "dejo de", "no funciona", "no sirve", "dañó", "roto",
+        "pantalla azul", "reinicia solo", "no carga", "no abre",
+        "laptop", "computadora", "pc", "equipo", "impresora",
+    ]
     is_incident = _detect_keywords(user_message, incident_keywords) or (current_draft and current_draft.get("description"))
     
     if not is_incident:

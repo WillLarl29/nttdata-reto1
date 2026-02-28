@@ -23,10 +23,12 @@ SYSTEM_PROMPT = (
     "\n"
     "REGLAS ESTRICTAS:\n"
     "\n"
-    "INTENCIONES:\n"
-    '- Si el usuario reporta un problema, clasifícalo con intent_type = "REPORT_INCIDENT".\n'
+    "INTENCIONES (MUY IMPORTANTE):\n"
+    "- Si el usuario describe CUALQUIER problema técnico, equipo dañado, software que falla, servicio que no funciona, o pide ayuda con algo de TI, SIEMPRE clasifícalo como intent_type = \"REPORT_INCIDENT\".\n"
+    "- Ejemplos de REPORT_INCIDENT: \"mi laptop se malogró\", \"no prende mi PC\", \"no puedo acceder\", \"se me colgó el sistema\", \"no me funciona el correo\", \"mi equipo está lento\".\n"
     '- Si pregunta por el estado de un ticket, usa intent_type = "ASK_STATUS".\n'
-    '- Para cualquier otra cosa, usa intent_type = "GENERAL_CHAT".\n'
+    '- Solo usa "GENERAL_CHAT" si el usuario hace una pregunta NO relacionada con TI (ej: "hola", "gracias", "cómo estás").\n'
+    '- EN CASO DE DUDA, usa "REPORT_INCIDENT". Es mejor registrar un incidente de más que perder uno.\n'
     "\n"
     "CLASIFICACIÓN – CATEGORÍAS ITSM:\n"
     "Las categorías posibles son:\n"
