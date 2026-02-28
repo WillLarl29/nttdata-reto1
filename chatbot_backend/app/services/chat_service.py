@@ -18,6 +18,7 @@ from app.services import state_machine as sm
 from app.services.incident_template import (
     render_incident_template_pro, build_enrichment_from_session
 )
+from app.services.recurrence_service import find_similar_incidents
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +173,13 @@ async def process_chat_message(request: ChatRequest, db: DBSession) -> ChatRespo
             session.calculated_priority = priority
             session.priority_label = sm.priority_score_to_label(priority)
 
+            # Análisis de recurrencia
+            recurrence = find_similar_incidents(db, session)
+
             priority_name = session.priority_label.value if session.priority_label else "Media"
             summary = f"[Chatbot] {session.category.value}: {session.description[:80]}"
+
+            # Construir descripción enriquecida con recurrencia
             description_body = (
                 f"*Reportado por:* {session.user_email}\n"
                 f"*Categoría:* {session.category.value}\n"
@@ -185,11 +191,21 @@ async def process_chat_message(request: ChatRequest, db: DBSession) -> ChatRespo
                 f"*Prioridad:* {priority_name} ({priority}/9)\n\n"
                 f"*Descripción del problema:*\n{session.description}"
             )
+            if recurrence["is_recurrent"]:
+                tickets_str = ", ".join(recurrence["similar_tickets"])
+                description_body += (
+                    f"\n\n---\n*⚠️ INCIDENTE RECURRENTE*\n"
+                    f"*Tickets similares:* {tickets_str}\n"
+                    f"*Causa probable:* {recurrence['probable_cause']}\n"
+                    f"*Acción preventiva:* {recurrence['preventive_action']}"
+                )
 
-            # Labels extra basados en prioridad
+            # Labels extra
             extra_labels = [f"p_{priority_name.lower()}"]
             if is_fast_track:
                 extra_labels.append("fast_track")
+            if recurrence["is_recurrent"]:
+                extra_labels.append("recurrente")
 
             jira_result = await create_jira_issue(
                 summary=summary,
@@ -216,17 +232,34 @@ async def process_chat_message(request: ChatRequest, db: DBSession) -> ChatRespo
                     "description": session.description,
                 }
                 enrichment = build_enrichment_from_session(session, extraction)
+                # Agregar datos de recurrencia al enrichment
+                enrichment["analytics"] = {
+                    "is_recurrent": recurrence["is_recurrent"],
+                    "similar_tickets": recurrence["similar_tickets"],
+                    "probable_cause": recurrence["probable_cause"],
+                    "preventive_action": recurrence["preventive_action"],
+                }
                 template_text = render_incident_template_pro(issue_data, enrichment)
                 await add_comment(jira_result["key"], template_text)
             except Exception as tmpl_err:
                 logger.warning(f"No se pudo agregar plantilla enriquecida: {tmpl_err}")
 
+            # Construir respuesta al usuario con info de recurrencia
             reply_text = (
                 f"✅ He creado tu ticket exitosamente: **{jira_result['key']}**.\n"
                 f"Puedes consultarlo aquí: {jira_result['url']}\n"
-                f"Prioridad asignada: **{priority_name}**. "
-                f"El equipo de soporte lo atenderá según corresponda."
+                f"Prioridad asignada: **{priority_name}**."
             )
+            if recurrence["is_recurrent"]:
+                tickets_str = ", ".join(recurrence["similar_tickets"])
+                reply_text += (
+                    f"\n\n⚠️ *Incidente recurrente detectado.* "
+                    f"Se encontraron {recurrence['recurrence_count']} tickets similares: {tickets_str}.\n"
+                    f"Causa probable: {recurrence['probable_cause']}"
+                )
+            else:
+                reply_text += " El equipo de soporte lo atenderá según corresponda."
+
             logger.info(f"Ticket creado: {jira_result['key']} para sesión {session.session_id}")
 
         except Exception as e:

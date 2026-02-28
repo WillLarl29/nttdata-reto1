@@ -11,6 +11,9 @@ async def lifespan(app: FastAPI):
     setup_logging()
     init_db()
     print("✅ Base de datos inicializada.")
+    # Cargar datos históricos de ejemplo
+    from app.services.seed_data import seed_database
+    seed_database()
     yield
     print("🛑 Servidor apagándose.")
 

@@ -121,16 +121,10 @@ async def extract_from_message(
         return extraction
 
     except json.JSONDecodeError as e:
-        logger.error(f"OpenAI devolvió JSON inválido: {e}")
-        return AIExtraction(
-            intent_type="GENERAL_CHAT",
-            missing_fields=[],
-            agent_reply="Disculpa, tuve un problema procesando tu mensaje. ¿Podrías reformularlo?"
-        )
+        logger.warning(f"OpenAI devolvió JSON inválido, usando clasificador local: {e}")
+        from app.services.fallback_classifier import classify_locally
+        return classify_locally(user_message, conversation_history, current_draft)
     except Exception as e:
-        logger.error(f"Error llamando a OpenAI: {e}")
-        return AIExtraction(
-            intent_type="GENERAL_CHAT",
-            missing_fields=[],
-            agent_reply="Estoy teniendo problemas técnicos momentáneos. Por favor intenta de nuevo en unos segundos."
-        )
+        logger.warning(f"OpenAI no disponible, usando clasificador local: {e}")
+        from app.services.fallback_classifier import classify_locally
+        return classify_locally(user_message, conversation_history, current_draft)
