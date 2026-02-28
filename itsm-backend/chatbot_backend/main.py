@@ -10,9 +10,9 @@ async def lifespan(app: FastAPI):
     """Inicializa la DB y logging al arrancar."""
     setup_logging()
     init_db()
-    print("✅ Base de datos inicializada.")
+    print("Base de datos inicializada.")
     yield
-    print("🛑 Servidor apagándose.")
+    print("Servidor apagandose.")
 
 app = FastAPI(
     title="Asistente de Gestión de Incidentes TI",
