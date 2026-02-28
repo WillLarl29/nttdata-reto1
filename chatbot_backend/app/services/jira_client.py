@@ -4,8 +4,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Base URL para la API REST de Jira Cloud v2
-JIRA_API_BASE = f"{settings.JIRA_DOMAIN}/rest/api/2"
+# Base URLs para las APIs REST de Jira Cloud
+JIRA_API_V2 = f"{settings.JIRA_DOMAIN}/rest/api/2"
+JIRA_API_V3 = f"{settings.JIRA_DOMAIN}/rest/api/3"
 
 
 def _get_auth() -> tuple[str, str]:
@@ -40,7 +41,8 @@ async def create_jira_issue(
     description: str,
     category: str,
     priority_score: int,
-    reporter_email: str
+    reporter_email: str,
+    extra_labels: list[str] | None = None
 ) -> dict:
     """
     Crea un Issue en Jira Cloud usando la REST API v2.
@@ -51,6 +53,15 @@ async def create_jira_issue(
     O lanza excepción si falla.
     """
     jira_priority = PRIORITY_MAP.get(priority_score, "Medium")
+
+    # Labels dinámicos: chatbot + categoría + genai + extras
+    labels = [
+        "chatbot-incidentes",
+        "genai_processed",
+        category.lower().replace(" / ", "_").replace(" ", "_"),
+    ]
+    if extra_labels:
+        labels.extend(extra_labels)
 
     payload = {
         "fields": {
@@ -65,10 +76,7 @@ async def create_jira_issue(
             "priority": {
                 "name": jira_priority
             },
-            "labels": [
-                "chatbot-incidentes",
-                category.lower()
-            ]
+            "labels": labels
         }
     }
 
@@ -80,7 +88,7 @@ async def create_jira_issue(
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
-                    f"{JIRA_API_BASE}/issue",
+                    f"{JIRA_API_V2}/issue",
                     json=payload,
                     auth=_get_auth(),
                     headers=_get_headers()
@@ -111,3 +119,39 @@ async def create_jira_issue(
             raise Exception(f"No se pudo conectar a Jira: {e}")
 
     raise Exception("Error inesperado creando issue en Jira")
+
+
+async def add_comment(issue_key: str, comment_text: str) -> dict | None:
+    """
+    Agrega un comentario enriquecido al issue de Jira usando API v3 con ADF.
+    Si falla, loguea el error pero no interrumpe el flujo.
+    """
+    from app.services.incident_template import adf_from_plain_text
+
+    url = f"{JIRA_API_V3}/issue/{issue_key}/comment"
+    payload = {
+        "body": adf_from_plain_text(comment_text)
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                url,
+                json=payload,
+                auth=_get_auth(),
+                headers=_get_headers()
+            )
+
+        if response.status_code in (200, 201):
+            logger.info(f"✅ Comentario enriquecido agregado a {issue_key}")
+            return response.json()
+        else:
+            logger.warning(
+                f"No se pudo agregar comentario a {issue_key}: "
+                f"{response.status_code} - {response.text}"
+            )
+            return None
+
+    except Exception as e:
+        logger.warning(f"Error agregando comentario a {issue_key}: {e}")
+        return None

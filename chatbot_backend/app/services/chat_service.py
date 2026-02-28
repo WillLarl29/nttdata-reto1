@@ -1,14 +1,23 @@
 """
 Orquestador principal del chat.
-Conecta: DB ↔ OpenAI ↔ State Machine ↔ Jira
+Conecta: DB ↔ OpenAI ↔ State Machine ↔ Jira ↔ Plantilla Enriquecida ↔ Auditoría
+Actualizado para Reto 1: campos enriquecidos, fast-track, auditoría, comentario ADF.
 """
+import json
 import logging
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session as DBSession
-from app.models.entities import IncidentSession, ChatMessage, IncidentStatus
+from app.models.entities import (
+    IncidentSession, ChatMessage, AIDecisionLog,
+    IncidentStatus, ImpactLevel, UrgencyLevel
+)
 from app.models.schemas import ChatRequest, ChatResponse, AIExtraction
 from app.services.openai_client import extract_from_message
-from app.services.jira_client import create_jira_issue
+from app.services.jira_client import create_jira_issue, add_comment
 from app.services import state_machine as sm
+from app.services.incident_template import (
+    render_incident_template_pro, build_enrichment_from_session
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +29,12 @@ async def process_chat_message(request: ChatRequest, db: DBSession) -> ChatRespo
     1. Buscar o crear sesión en DB.
     2. Guardar mensaje del usuario.
     3. Construir historial y enviar a OpenAI.
-    4. Aplicar extracción al borrador del incidente.
-    5. Evaluar máquina de estados.
-    6. Si está listo → crear ticket en Jira.
-    7. Guardar respuesta del asistente en DB.
-    8. Retornar response al frontend.
+    4. Aplicar extracción enriquecida al borrador del incidente.
+    5. Evaluar máquina de estados (con fast-track si es crítico).
+    6. Si está listo → crear ticket en Jira + comentario enriquecido.
+    7. Guardar AIDecisionLog para auditoría.
+    8. Guardar respuesta del asistente en DB.
+    9. Retornar response al frontend.
     """
 
     # ─── 1. Buscar o crear sesión ───
@@ -80,8 +90,11 @@ async def process_chat_message(request: ChatRequest, db: DBSession) -> ChatRespo
     current_draft = {
         "description": session.description,
         "category": session.category.value if session.category else None,
+        "sub_category": session.sub_category,
         "impact": session.impact.value if session.impact else None,
         "urgency": session.urgency.value if session.urgency else None,
+        "service": session.service,
+        "environment": session.environment,
     }
 
     # ─── 4. Enviar a OpenAI ───
@@ -91,8 +104,10 @@ async def process_chat_message(request: ChatRequest, db: DBSession) -> ChatRespo
         current_draft=current_draft
     )
 
-    # ─── 5. Aplicar extracción al borrador ───
+    # ─── 5. Aplicar extracción enriquecida al borrador ───
+    is_fast_track = False
     if extraction.intent_type == "REPORT_INCIDENT":
+        # Campos básicos
         if extraction.extracted_description and not session.description:
             session.description = extraction.extracted_description
 
@@ -108,36 +123,81 @@ async def process_chat_message(request: ChatRequest, db: DBSession) -> ChatRespo
         if parsed_urgency and not session.urgency:
             session.urgency = parsed_urgency
 
+        # Campos enriquecidos (Reto 1)
+        if extraction.extracted_sub_category and not session.sub_category:
+            session.sub_category = extraction.extracted_sub_category
+
+        if extraction.extracted_service and not session.service:
+            session.service = extraction.extracted_service
+
+        if extraction.extracted_environment and not session.environment:
+            session.environment = extraction.extracted_environment
+
+        if extraction.extracted_assignment_group and not session.assignment_group:
+            session.assignment_group = extraction.extracted_assignment_group
+
+        # Trazabilidad
+        if extraction.confidence is not None:
+            session.ai_confidence = extraction.confidence
+
+        ai_reasoning = {
+            "evidence_snippets": extraction.evidence_snippets,
+            "assumptions": extraction.assumptions,
+            "rules_used": extraction.rules_used,
+        }
+        session.ai_reasoning = json.dumps(ai_reasoning, ensure_ascii=False)
+
+        # Fast-track: incidente crítico
+        if extraction.is_critical:
+            is_fast_track = True
+            # Asumir máximos si no están definidos
+            if not session.impact:
+                session.impact = ImpactLevel.ORGANIZATION
+            if not session.urgency:
+                session.urgency = UrgencyLevel.HIGH
+            logger.info(f"🚨 Fast-track activado para sesión {session.session_id}")
+
     # ─── 6. Evaluar máquina de estados ───
-    new_status = sm.determine_next_status(session)
+    new_status = sm.determine_next_status(session, fast_track=is_fast_track)
     session.status = new_status
     db.commit()
 
     reply_text = extraction.agent_reply
 
-    # ─── 7. Si está listo → crear ticket en Jira ───
+    # ─── 7. Si está listo → crear ticket en Jira + comentario enriquecido ───
     if new_status == IncidentStatus.READY_TO_CREATE:
         try:
             # Calcular prioridad
             priority = sm.calculate_priority(session.impact, session.urgency)
             session.calculated_priority = priority
+            session.priority_label = sm.priority_score_to_label(priority)
 
+            priority_name = session.priority_label.value if session.priority_label else "Media"
             summary = f"[Chatbot] {session.category.value}: {session.description[:80]}"
             description_body = (
                 f"*Reportado por:* {session.user_email}\n"
                 f"*Categoría:* {session.category.value}\n"
+                f"*Subcategoría:* {session.sub_category or '-'}\n"
+                f"*Servicio:* {session.service or '-'}\n"
+                f"*Ambiente:* {session.environment or '-'}\n"
                 f"*Impacto:* {session.impact.value}\n"
                 f"*Urgencia:* {session.urgency.value}\n"
-                f"*Prioridad calculada:* {priority}/9\n\n"
+                f"*Prioridad:* {priority_name} ({priority}/9)\n\n"
                 f"*Descripción del problema:*\n{session.description}"
             )
+
+            # Labels extra basados en prioridad
+            extra_labels = [f"p_{priority_name.lower()}"]
+            if is_fast_track:
+                extra_labels.append("fast_track")
 
             jira_result = await create_jira_issue(
                 summary=summary,
                 description=description_body,
                 category=session.category.value,
                 priority_score=priority,
-                reporter_email=session.user_email
+                reporter_email=session.user_email,
+                extra_labels=extra_labels
             )
 
             session.jira_issue_key = jira_result["key"]
@@ -145,11 +205,27 @@ async def process_chat_message(request: ChatRequest, db: DBSession) -> ChatRespo
             session.status = IncidentStatus.TICKET_CREATED
             db.commit()
 
+            # Agregar comentario enriquecido con plantilla del Reto 1
+            try:
+                issue_data = {
+                    "issue_key": jira_result["key"],
+                    "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "reporter_email": session.user_email,
+                    "channel": session.channel or "chat",
+                    "summary": summary,
+                    "description": session.description,
+                }
+                enrichment = build_enrichment_from_session(session, extraction)
+                template_text = render_incident_template_pro(issue_data, enrichment)
+                await add_comment(jira_result["key"], template_text)
+            except Exception as tmpl_err:
+                logger.warning(f"No se pudo agregar plantilla enriquecida: {tmpl_err}")
+
             reply_text = (
                 f"✅ He creado tu ticket exitosamente: **{jira_result['key']}**.\n"
                 f"Puedes consultarlo aquí: {jira_result['url']}\n"
-                f"El equipo de soporte lo atenderá con prioridad "
-                f"{'Alta' if priority >= 6 else 'Media' if priority >= 3 else 'Normal'}."
+                f"Prioridad asignada: **{priority_name}**. "
+                f"El equipo de soporte lo atenderá según corresponda."
             )
             logger.info(f"Ticket creado: {jira_result['key']} para sesión {session.session_id}")
 
@@ -158,13 +234,31 @@ async def process_chat_message(request: ChatRequest, db: DBSession) -> ChatRespo
             reply_text = (
                 "Tengo toda la información necesaria para crear tu ticket, "
                 "pero estoy teniendo problemas para conectarme con Jira en este momento. "
-                "Reintenataré automáticamente. Por favor espera unos segundos y escríbeme de nuevo."
+                "Reintentaré automáticamente. Por favor espera unos segundos y escríbeme de nuevo."
             )
             # Mantener en READY_TO_CREATE para reintentar
             session.status = IncidentStatus.READY_TO_CREATE
             db.commit()
 
-    # ─── 8. Guardar respuesta del asistente ───
+    # ─── 8. Guardar AIDecisionLog para auditoría ───
+    if extraction.intent_type == "REPORT_INCIDENT":
+        try:
+            decision = AIDecisionLog(
+                session_id=session.session_id,
+                step_name="classification_and_enrichment",
+                input_data=json.dumps({
+                    "user_message": request.message,
+                    "current_draft": current_draft,
+                }, ensure_ascii=False),
+                output_data=json.dumps(extraction.model_dump(), ensure_ascii=False, default=str),
+                confidence=extraction.confidence,
+            )
+            db.add(decision)
+            db.commit()
+        except Exception as audit_err:
+            logger.warning(f"No se pudo guardar AIDecisionLog: {audit_err}")
+
+    # ─── 9. Guardar respuesta del asistente ───
     db.add(ChatMessage(
         session_id=session.session_id,
         role="assistant",

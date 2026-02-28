@@ -1,0 +1,521 @@
+# Reto 1:
+
+Stack: 
+
+Jira - frontend
+
+Python - backend
+
+bd - jira
+
+### Requerimientos (funcionales y no funcionales)
+
+**Funcionales (alineados al reto):**
+
+- Clasificar ticket (tipo + categoría)
+- Priorizar (impacto/urgencia/contexto)
+- Generar respuesta clara
+- Detectar recurrencias + RCA tentativa
+- Explicar decisiones (trazabilidad)
+
+**No funcionales (muy importantes para enterprise):**
+
+- Auditabilidad (guardar razón de decisiones)
+- Seguridad (no exponer credenciales; sanitización de datos)
+- Confiabilidad (fallback si LLM falla)
+- Latencia objetivo (ej. <5–8s por ticket)
+- Observabilidad (logs por agente)
+
+**Salida**: checklist.
+
+### 6) Flujo end-to-end (workflow del incidente)
+
+1.  **Interacción Inicial (Chat):** El usuario describe el problema en lenguaje natural.
+
+2. **Normalización + extracción de campos:** El agente verifica si falta información (ej. sistema afectado, descripcion del problema). Si es **ambiguo**, repregunta hasta completar los campos.
+
+3. **Clasificación y Priorización:** El agente analizan el texto para determinar el **Tipo** (Incidente/Requerimiento) y el **Nivel** (1, 2 o 3) según el impacto.
+
+4. **Acción en JIRA:** El agente llama a la API de Jira, crea el ticket y recibe la URL única.
+
+5. **Persistencia en BD:** Se guardan los datos del ticket, la traza de la conversación y la decisión de la IA para futuras **auditorías**.
+
+6. **Cierre del Ciclo:** El agente retorna el link de Jira al usuario para su seguimiento.
+
+**Salida**: “Happy path” + “Edge cases”.
+
+| **Escenario** | **Comportamiento del Agente** |
+| --- | --- |
+| **Happy Path** | El usuario da datos claros, la IA clasifica correctamente, crea el ticket en Jira y entrega el link en segundos. |
+| **Edge Case: Ambigüedad** | El usuario dice "No funciona". El agente detecta que es ambiguo y solicita detalles del sistema antes de registrar. |
+| **Edge Case: Crítico** | Se detecta "Servidor caído". El agente prioriza Nivel 3 automáticamente y omite preguntas secundarias para agilizar el reporte. |
+
+![image.png](attachment:e1bff90d-6ea5-4081-991a-f2d8c4978c27:image.png)
+
+---
+
+Labels
+
+|  |  |  |
+| --- | --- | --- |
+|  |  |  |
+|  |  |  |
+
+---
+
+- Priorización
+    - Baja
+    - Media
+    - Alta
+    - Crítica
+
+- Clasificacion
+
+Acceso / IAM
+
+---
+
+ERP / SAP
+
+---
+
+Workflow / HR
+
+---
+
+Logística / IT
+
+---
+
+Plataforma
+
+---
+
+Asset Mgmt
+
+---
+
+Finanzas
+
+---
+
+Sistemas / Mail
+
+---
+
+Catálogo / SW
+
+---
+
+IT / Backend
+
+---
+
+Acceso / Roles
+
+---
+
+Logística
+
+---
+
+Infraestructura
+
+---
+
+Datos Maestros
+
+---
+
+Catálogo
+
+---
+
+Soporte / VIP
+
+---
+
+Workflow
+
+---
+
+Facturación
+
+---
+
+Soporte / Gestión
+
+---
+
+Asset Quality
+
+---
+
+IAM / Seguridad
+
+---
+
+Procurement
+
+---
+
+Administración
+
+---
+
+Soporte
+
+---
+
+Plataforma / Movil
+
+---
+
+ERP / Finanzas
+
+---
+
+Inventario
+
+---
+
+Soporte / Asset
+
+---
+
+Security / Endpoint
+
+---
+
+Soporte / IA
+
+---
+
+Acceso
+
+---
+
+Datos Maestros
+
+---
+
+Calidad
+
+---
+
+Sistema
+
+---
+
+Comunicación
+
+---
+
+Seguridad
+
+---
+
+Compliance
+
+---
+
+Casuística
+
+## Plantilla de incidentes Jira
+
+## 1) Plantilla profesional (Markdown “Incidente Enriquecido por GenIA”)
+
+```
+INCIDENT_TEMPLATE_PRO="""\
+# 🧠 GenIA – Incidente Enriquecido (ITSM)
+
+## 1) Contexto del Ticket (Entrada)
+**Ticket:** {issue_key}
+**Creado:** {created_at}
+**Reportado por:** {reporter_email} ({reporter_department})
+**Canal:** {channel}
+**Resumen:** {summary}
+
+**Descripción original (usuario):**
+{original_description}
+
+---
+
+## 2) Clasificación Automática (Agente Clasificador)
+- **Tipo ITSM:** {ticket_type}
+- **Categoría:** {category}
+- **Subcategoría:** {sub_category}
+- **Servicio/Sistema:** {service}
+- **Ambiente:** {environment}
+- **Grupo sugerido:** {assignment_group}
+- **Confianza del modelo:** {confidence_pct}
+
+**Campos faltantes detectados:**
+{missing_fields}
+
+---
+
+## 3) Priorización (Agente de Priorización)
+- **Impacto:** {impact}
+- **Urgencia:** {urgency}
+- **Prioridad:** {priority}
+
+**Justificación (explicable):**
+- **Evidencias del texto:** {evidence_snippets}
+- **Supuestos:** {assumptions}
+- **Reglas aplicadas:** {rules_used}
+
+---
+
+## 4) Respuesta sugerida al usuario (Agente de Soporte)
+**Mensaje listo para enviar:**
+{user_reply_draft}
+
+**Preguntas aclaratorias (si aplica):**
+{clarifying_questions}
+
+---
+
+## 5) Análisis de recurrencia / patrones (Agente Analítico)
+- **¿Recurrente?:** {is_recurrent}
+- **Tickets similares:** {similar_tickets}
+- **Causa probable:** {probable_cause}
+- **Acción preventiva/correctiva sugerida:** {preventive_action}
+
+---
+
+## 6) Acciones recomendadas (Orquestador)
+**Próximos pasos internos:**
+{next_steps_internal}
+
+**Etiquetas sugeridas:**
+{suggested_labels}
+
+---
+
+## 7) Auditoría / Trazabilidad
+- **Procesado por:** {assistant_version}
+- **Fecha de procesamiento:** {processed_at}
+"""
+```
+
+---
+
+## 2) Función para renderizarla (con defaults “bonitos”)
+
+```
+fromdatetimeimportdatetime
+fromtypingimportAny,Dict,List
+
+def_bullet_list(items:List[str],empty_text:str="-") ->str:
+ifnotitems:
+returnempty_text
+return"\n".join([f"-{x}"forxinitems])
+
+def_inline_list(items:List[str],empty_text:str="-") ->str:
+ifnotitems:
+returnempty_text
+return", ".join(items)
+
+defrender_incident_template_pro(
+issue:Dict[str,Any],
+enrichment:Dict[str,Any],
+assistant_version:str="GenIA-ITSM v1"
+) ->str:
+now=datetime.now().isoformat(timespec="seconds")
+
+# Inputs (desde Jira)
+issue_key=issue.get("issue_key","-")
+created_at=issue.get("created_at","-")
+reporter_email=issue.get("reporter_email","-")
+reporter_department=issue.get("reporter_department","-")
+channel=issue.get("channel","Jira")
+summary=issue.get("summary","-")
+original_description=issue.get("description","-")
+
+# Enrichment (desde agentes)
+cls=enrichment.get("classification", {})
+prio=enrichment.get("prioritization", {})
+sup=enrichment.get("support", {})
+ana=enrichment.get("analytics", {})
+exp=enrichment.get("explainability", {})
+orch=enrichment.get("orchestrator", {})
+
+confidence=cls.get("confidence",None)
+confidence_pct=f"{confidence*100:.0f}%"ifisinstance(confidence, (float,int))else"-"
+
+filled=INCIDENT_TEMPLATE_PRO.format(
+issue_key=issue_key,
+created_at=created_at,
+reporter_email=reporter_email,
+reporter_department=reporter_department,
+channel=channel,
+summary=summary,
+original_description=original_description,
+
+ticket_type=cls.get("ticket_type","-"),
+category=cls.get("category","-"),
+sub_category=cls.get("sub_category","-"),
+service=cls.get("service",issue.get("service","-")),
+environment=cls.get("environment",issue.get("environment","-")),
+assignment_group=cls.get("assignment_group","-"),
+confidence_pct=confidence_pct,
+missing_fields=_bullet_list(cls.get("missing_fields", [])),
+
+impact=prio.get("impact","-"),
+urgency=prio.get("urgency","-"),
+priority=prio.get("priority","-"),
+
+evidence_snippets=_inline_list(exp.get("evidence_snippets", [])),
+assumptions=_inline_list(exp.get("assumptions", [])),
+rules_used=_inline_list(exp.get("rules_used", [])),
+
+user_reply_draft=sup.get("user_reply_draft","-"),
+clarifying_questions=_bullet_list(sup.get("clarifying_questions", [])),
+
+is_recurrent=str(ana.get("is_recurrent","-")),
+similar_tickets=_inline_list(ana.get("similar_tickets", [])),
+probable_cause=ana.get("probable_cause","-"),
+preventive_action=ana.get("preventive_action","-"),
+
+next_steps_internal=_bullet_list(orch.get("next_steps_internal", [])),
+suggested_labels=_inline_list(orch.get("suggested_labels", [])),
+
+assistant_version=assistant_version,
+processed_at=now
+    )
+returnfilled
+```
+
+---
+
+## 3) Publicarlo en Jira (comentario recomendado) + ADF
+
+```
+importrequests
+fromrequests.authimportHTTPBasicAuth
+
+defadf_from_plain_text(text:str) ->dict:
+# Convierte texto con saltos de línea a ADF (párrafos).
+paragraphs= []
+forlineintext.splitlines():
+paragraphs.append({
+"type":"paragraph",
+"content": [{"type":"text","text":lineiflineelse" "}]
+        })
+return {"type":"doc","version":1,"content":paragraphs}
+
+classJiraClient:
+def__init__(self,base_url:str,email:str,api_token:str):
+self.base_url=base_url.rstrip("/")
+self.auth=HTTPBasicAuth(email,api_token)
+self.headers= {"Accept":"application/json","Content-Type":"application/json"}
+
+defadd_comment(self,issue_key:str,comment_text:str) ->dict:
+url=f"{self.base_url}/rest/api/3/issue/{issue_key}/comment"
+payload= {"body":adf_from_plain_text(comment_text)}
+r=requests.post(url,json=payload,headers=self.headers,auth=self.auth)
+r.raise_for_status()
+returnr.json()
+
+defupdate_description(self,issue_key:str,description_text:str):
+url=f"{self.base_url}/rest/api/3/issue/{issue_key}"
+payload= {"fields": {"description":adf_from_plain_text(description_text)}}
+r=requests.put(url,json=payload,headers=self.headers,auth=self.auth)
+r.raise_for_status()
+```
+
+---
+
+## 4) “Aplicar plantilla” en tu backend (la función que llamas y ya)
+
+```
+defapply_incident_template_pro(
+jira:JiraClient,
+issue:Dict[str,Any],
+enrichment:Dict[str,Any],
+mode:str="comment"# "comment" o "description"
+):
+"""
+    mode="comment": agrega comentario con enriquecimiento (recomendado)
+    mode="description": reemplaza description por el enriquecimiento (no recomendado en enterprise)
+    """
+text=render_incident_template_pro(issue,enrichment)
+
+issue_key=issue["issue_key"]
+ifmode=="comment":
+jira.add_comment(issue_key,text)
+elifmode=="description":
+jira.update_description(issue_key,text)
+else:
+raiseValueError("mode debe ser 'comment' o 'description'")
+```
+
+---
+
+## 5) Ejemplo de uso (dummy)
+
+```
+if__name__=="__main__":
+jira=JiraClient(
+base_url="https://TU-DOMINIO.atlassian.net",
+email="tu_correo@empresa.com",
+api_token="TU_API_TOKEN"
+    )
+
+issue= {
+"issue_key":"IT-234",
+"created_at":"2026-02-28T09:10:00-05:00",
+"reporter_email":"finanzas@empresa.com",
+"reporter_department":"Finanzas",
+"channel":"Portal",
+"summary":"Error 403 al ingresar a SAP",
+"description":"No puedo acceder a SAP desde esta mañana, error 403 y debo facturar urgente.",
+"service":"SAP",
+"environment":"PROD"
+    }
+
+enrichment= {
+"classification": {
+"ticket_type":"INCIDENT",
+"category":"Acceso",
+"sub_category":"Autenticación/Permisos",
+"service":"SAP",
+"environment":"PROD",
+"assignment_group":"Soporte SAP",
+"confidence":0.92,
+"missing_fields": ["Usuarios afectados","¿Ocurre en otra red/dispositivo?"]
+        },
+"prioritization": {
+"impact":"ALTO",
+"urgency":"ALTA",
+"priority":"P1"
+        },
+"explainability": {
+"evidence_snippets": ["error 403","facturar urgente","desde esta mañana"],
+"assumptions": ["Finanzas requiere continuidad para facturación"],
+"rules_used": ["Servicio crítico + urgencia explícita => P1"]
+        },
+"support": {
+"user_reply_draft":"Hola, registramos un incidente de acceso a SAP (error 403). Estamos validando permisos y estado del servicio. Por favor confirma si ocurre en otro dispositivo o red.",
+"clarifying_questions": ["¿A cuántas personas les ocurre?","¿Funciona desde otra red (datos móviles/VPN)?"]
+        },
+"analytics": {
+"is_recurrent":True,
+"similar_tickets": ["IT-198","IT-210"],
+"probable_cause":"Cambio reciente de políticas de acceso/SSO",
+"preventive_action":"Notificar cambios y validar expiración de credenciales"
+        },
+"orchestrator": {
+"next_steps_internal": ["Revisar estado SAP","Validar logs SSO","Confirmar alcance con Finanzas"],
+"suggested_labels": ["genai_processed","sap","access","p1_candidate"]
+        }
+    }
+
+apply_incident_template_pro(jira,issue,enrichment,mode="comment")
+print("✅ Plantilla aplicada como comentario.")
+```
+
+---
+
+## Recomendación final (para que se vea enterprise)

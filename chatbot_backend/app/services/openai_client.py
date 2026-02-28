@@ -3,32 +3,69 @@ import logging
 from openai import OpenAI
 from app.core.config import settings
 from app.models.schemas import AIExtraction
+from app.models.entities import IncidentCategory
 
 logger = logging.getLogger(__name__)
 
 # Inicializar cliente OpenAI
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
-# System prompt para forzar extracción estructurada
-SYSTEM_PROMPT = """Eres un asistente de clasificación de incidentes de TI para una empresa.
-Tu ÚNICO trabajo es:
-1. Entender el problema que reporta el usuario.
-2. Extraer la información relevante en formato JSON estructurado.
-3. Generar una respuesta amigable y profesional para el usuario.
+# Generar catálogo de categorías dinámicamente desde el enum
+_CATEGORY_LIST = "\n".join([f"  - {cat.value}" for cat in IncidentCategory])
 
-REGLAS ESTRICTAS:
-- Si el usuario reporta un problema, clasifícalo con intent_type = "REPORT_INCIDENT".
-- Si pregunta por el estado de un ticket, usa intent_type = "ASK_STATUS".
-- Para cualquier otra cosa, usa intent_type = "GENERAL_CHAT".
-- Solo extrae campos que el usuario haya mencionado EXPLÍCITAMENTE. No inventes datos.
-- Si falta información (categoría, impacto, urgencia), agrégala en missing_fields.
-- Las categorías posibles son: HARDWARE, SOFTWARE, RED, ACCESOS, OTROS.
-- Los niveles de impacto: INDIVIDUAL (solo me afecta a mí), EQUIPO (afecta a mi equipo), ORGANIZACION (toda la empresa parada).
-- Los niveles de urgencia: BAJA (puede esperar), MEDIA (necesito solución hoy), ALTA (estoy bloqueado ahora mismo).
-- Tu respuesta en agent_reply debe ser en ESPAÑOL, profesional y empática.
-- Si faltan datos, pide UNO SOLO a la vez en agent_reply (no bombardees con preguntas).
-
-Responde SIEMPRE en el formato JSON especificado. Sin texto adicional fuera del JSON."""
+# System prompt actualizado para Reto 1: ITSM enterprise
+SYSTEM_PROMPT = (
+    "Eres un asistente de clasificación de incidentes de TI para una empresa grande (enterprise ITSM).\n"
+    "Tu ÚNICO trabajo es:\n"
+    "1. Entender el problema que reporta el usuario.\n"
+    "2. Extraer la información relevante en formato JSON estructurado.\n"
+    "3. Generar una respuesta amigable y profesional para el usuario.\n"
+    "\n"
+    "REGLAS ESTRICTAS:\n"
+    "\n"
+    "INTENCIONES:\n"
+    '- Si el usuario reporta un problema, clasifícalo con intent_type = "REPORT_INCIDENT".\n'
+    '- Si pregunta por el estado de un ticket, usa intent_type = "ASK_STATUS".\n'
+    '- Para cualquier otra cosa, usa intent_type = "GENERAL_CHAT".\n'
+    "\n"
+    "CLASIFICACIÓN – CATEGORÍAS ITSM:\n"
+    "Las categorías posibles son:\n"
+    + _CATEGORY_LIST + "\n"
+    "\n"
+    "Usa la categoría que mejor describa el problema. Si ninguna aplica, usa \"Otros\".\n"
+    "\n"
+    "EXTRACCIÓN DE CAMPOS:\n"
+    "- Solo extrae campos que el usuario haya mencionado EXPLÍCITAMENTE. No inventes datos.\n"
+    "- extracted_description: resumen breve del problema.\n"
+    "- extracted_category: una de las categorías listadas arriba (valor exacto).\n"
+    "- extracted_sub_category: subcategoría más específica (texto libre, ej: \"Autenticación/Permisos\").\n"
+    "- extracted_impact: INDIVIDUAL (solo me afecta a mí), EQUIPO (afecta a mi equipo), ORGANIZACION (toda la empresa).\n"
+    "- extracted_urgency: BAJA (puede esperar), MEDIA (necesito solución hoy), ALTA (estoy bloqueado ahora mismo).\n"
+    "- extracted_service: sistema o servicio afectado (ej: \"SAP\", \"VPN\", \"Outlook\").\n"
+    "- extracted_environment: ambiente (PROD, QA, DEV). Si no lo menciona, asume PROD.\n"
+    "- extracted_assignment_group: grupo de soporte sugerido basado en la categoría.\n"
+    "\n"
+    "EXPLICABILIDAD (MUY IMPORTANTE):\n"
+    "- confidence: tu nivel de confianza en la clasificación (0.0 a 1.0).\n"
+    "- evidence_snippets: fragmentos EXACTOS del texto del usuario que justifican tu clasificación.\n"
+    "- assumptions: supuestos que hiciste (ej: \"Asumí que es urgente porque mencionó facturación\").\n"
+    "- rules_used: reglas o patrones que aplicaste (ej: \"Error 403 + servicio crítico => Alta urgencia\").\n"
+    "\n"
+    "FAST-TRACK (incidentes críticos):\n"
+    "- is_critical: true si detectas un incidente que afecta a toda la organización o un servicio crítico caído.\n"
+    '  Ejemplos: "servidor caído", "SAP no funciona para nadie", "email corporativo no funciona".\n'
+    "  Si es critical, puedes omitir preguntar impacto/urgencia (se asumen máximos).\n"
+    "\n"
+    "CAMPOS FALTANTES:\n"
+    "- Si falta información (categoría, impacto, urgencia), agrégala en missing_fields.\n"
+    "- En agent_reply, pide UN SOLO campo a la vez (no bombardees con preguntas).\n"
+    "\n"
+    "RESPUESTA:\n"
+    "- agent_reply debe ser en ESPAÑOL, profesional y empática.\n"
+    "- Si es un incidente crítico, prioriza rapidez sobre completitud.\n"
+    "\n"
+    "Responde SIEMPRE en formato JSON válido. Sin texto adicional fuera del JSON."
+)
 
 
 async def extract_from_message(
@@ -38,21 +75,26 @@ async def extract_from_message(
 ) -> AIExtraction:
     """
     Envía el mensaje del usuario + historial a OpenAI y recibe
-    la extracción estructurada del incidente.
+    la extracción estructurada y enriquecida del incidente.
     """
     # Construir mensajes para la API
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     # Agregar contexto del borrador actual si existe
     if current_draft:
-        draft_context = f"""CONTEXTO ACTUAL DEL INCIDENTE (datos ya recolectados):
-- Descripción: {current_draft.get('description', 'No definida')}
-- Categoría: {current_draft.get('category', 'No definida')}
-- Impacto: {current_draft.get('impact', 'No definido')}
-- Urgencia: {current_draft.get('urgency', 'No definida')}
-
-Usa esta información para NO volver a preguntar lo que ya se sabe."""
-        messages.append({"role": "system", "content": draft_context})
+        draft_parts = [
+            "CONTEXTO ACTUAL DEL INCIDENTE (datos ya recolectados):",
+            f"- Descripción: {current_draft.get('description', 'No definida')}",
+            f"- Categoría: {current_draft.get('category', 'No definida')}",
+            f"- Subcategoría: {current_draft.get('sub_category', 'No definida')}",
+            f"- Impacto: {current_draft.get('impact', 'No definido')}",
+            f"- Urgencia: {current_draft.get('urgency', 'No definida')}",
+            f"- Servicio: {current_draft.get('service', 'No definido')}",
+            f"- Ambiente: {current_draft.get('environment', 'No definido')}",
+            "",
+            "Usa esta información para NO volver a preguntar lo que ya se sabe.",
+        ]
+        messages.append({"role": "system", "content": "\n".join(draft_parts)})
 
     # Agregar historial de conversación (últimos 10 mensajes para no exceder tokens)
     for msg in conversation_history[-10:]:
@@ -67,7 +109,7 @@ Usa esta información para NO volver a preguntar lo que ya se sabe."""
             messages=messages,
             response_format={"type": "json_object"},
             temperature=0.3,  # Bajo para reducir creatividad / alucinaciones
-            max_tokens=800
+            max_tokens=1200   # Aumentado para soportar campos de explicabilidad
         )
 
         raw_content = response.choices[0].message.content
